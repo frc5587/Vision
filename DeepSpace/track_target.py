@@ -75,17 +75,25 @@ def contour_dist_sort(contour_array):
 
     # Find contour with smallest distance from previously selected contour
     d_min_2 = None
+    d_min_3 = None
+    min_cont_pos = None
     next_cont_pos = None
     for counter, center in enumerate(cont_centers):
         # Get distance from selected contour center to current contour
         cnt_d = get_center_distance(closest_center, center)
         if d_min_2 is None or cnt_d < d_min_2:
             d_min_2 = cnt_d
+            min_cont_pos = counter
+        elif d_min_3 is None or cnt_d < d_min_3:
+            d_min_3 = cnt_d
             next_cont_pos = counter
 
     # If no distance was found, then there is no second contour
     if d_min_2 is None:
         return (closest_center, None)
+    elif d_min_3 is None:
+        d_min_3 = d_min_2
+        next_cont_pos = min_cont_pos
 
     # Find the center of the second contour to return it
     next_closest_center = cont_centers[next_cont_pos]
