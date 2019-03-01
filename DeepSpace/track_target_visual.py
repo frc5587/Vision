@@ -1,53 +1,130 @@
 import cv2
 import numpy as np
-from math import atan, tan, radians, degrees
-import socket
+from math import atan, degrees, sqrt
+# import socket
 import time
+import os
+
+os.system(
+    "uvcdynctrl -s 'Exposure, Auto' 1 && uvcdynctrl -s 'Exposure (Absolute)'" +
+    " 0.1 && uvcdynctrl -s 'Brightness' 0.1")
 
 # TCP_IP = '10.55.87.2'
 # TCP_PORT = 3456
 
 # s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-# s.connect((TCP_IP, TCP_PORT))
-# distance between cameras = 10.75 in
-# f = (P x d) /w
-# d = (w x f) / p
-import os
+# s.settimeout(None)
 
-os.system("uvcdynctrl -s 'Exposure, Auto' 1 && uvcdynctrl -s 'Exposure (Absolute)' 0.1 && uvcdynctrl -s 'Brightness' 0.1")
-
-cap = cv2.VideoCapture(1)
+cap = cv2.VideoCapture(0)
 focal_length = 333.82
-frame_center = (int(640/2), int(480/2))
+frame_center = (int(640 / 2), int(480 / 2))
 FOV = 86
 
-camera_height = 45
-camera_offset_angle = radians(0)
-target_height = 30
-
-diff_height = target_height - camera_height
+color_lower = np.array([50, 180, 50])
+color_upper = np.array([120, 255, 255])
 
 
-def get_y_distance(cY):
-    if((frame_center[1] - cY) != 0):
-        # Vertical Angle to Target
-        theta = atan((frame_center[1] - cY)/focal_length)
-        v_compound_angle = theta + camera_offset_angle
-        print("VA: " + str(degrees(theta + camera_offset_angle)))
-        return diff_height/tan(v_compound_angle)
-    return 0
+# def connect_tcp():
+#     while True:
+#         try:
+#             s.connect((TCP_IP, TCP_PORT))
+#             break
+#         except ConnectionRefusedError:
+#             print("Could not connect. Waiting one sec and trying again...")
+#             time.sleep(1)
 
 
-def get_x_distance(cX, setpoint_y):
-    if((frame_center[0] - cX) != 0 and setpoint_y != 0):
-        h_angle_to_target = ((frame_center[0] - cX) / focal_length)
-        print("HA: " + str(h_angle_to_target))
-        return (abs(h_angle_to_target) * setpoint_y)
-    return 0
+# def send_times():
+#     for i in range(5):
+#         to_send = '{}\n'.format(round(time.time(), 3))
+#         print("Sending...")
+#         s.send(bytearray(to_send, 'utf-8'))
+
+
+def contour_dist_sort(contour_array, frame):
+    cont_centers = []
+    distance_center = []
+
+    # Add all contour centers to an array for filtering
+    for c in contour_array:
+        cnt_center = get_cnt_center(c, frame)
+
+        # if the contour center is None, then return None for both centers
+        if cnt_center is not None:
+            cont_centers.append(cnt_center)
+            distance_center.append(
+                get_center_distance(cnt_center, frame_center))
+
+    # Find the smallest distance from frame center to contour center
+    d_min_1 = None
+    for d in distance_center:
+        if d_min_1 is None or d < d_min_1:
+            d_min_1 = d
+
+    # If no distance was found, there are no contours
+    if d_min_1 is None:
+        return (None, None)
+
+    # Find the index of the selected contour to find its center
+    d_min_1_pos = distance_center.index(d_min_1)
+    closest_center = cont_centers[d_min_1_pos]
+
+    # Remove it from the arrays of interest now that we've seleceted it
+    cont_centers.pop(d_min_1_pos)
+    distance_center.pop(d_min_1_pos)
+
+    # Find contour with smallest distance from previously selected contour
+    d_min_2 = None
+    d_min_3 = None
+    min_cont_pos = None
+    next_cont_pos = None
+    for counter, center in enumerate(cont_centers):
+        # Get distance from selected contour center to current contour
+        cnt_d = get_center_distance(closest_center, center)
+        if d_min_2 is None or cnt_d < d_min_2:
+            d_min_2 = cnt_d
+            min_cont_pos = counter
+        elif d_min_3 is None or cnt_d < d_min_3:
+            d_min_3 = cnt_d
+            next_cont_pos = counter
+
+    # If no distance was found, then there is no second contour
+    if d_min_2 is None:
+        return (closest_center, None)
+    elif d_min_3 is None:
+        d_min_3 = d_min_2
+        next_cont_pos = min_cont_pos
+
+    # Find the center of the second contour to return it
+    next_closest_center = cont_centers[next_cont_pos]
+
+    return (closest_center, next_closest_center)
+
+
+def identify_pairs(countours, frame):
+    # Angle dict formatted as index, angle
+    angle_dict = {}
+
+    for index, contour in enumerate(countours):
+        rect = cv2.minAreaRect(countours)
+        angle_dict[index] = rect[2]
+
+
+def get_center_distance(p1, p2):
+    return sqrt(((p2[0] - p1[0])**2) + ((p2[1] - p1[1])**2))
+
+
+def get_h_angle(cX):
+    return atan(((int(640 / 2) + .5) - cX) / 333.82)
 
 
 def get_cnt_center(cnt, frame):
     rect = cv2.minAreaRect(cnt)
+
+    # rect tuple is ( center (x,y), (width, height), angle of rotation ).
+    if rect[1][0] < 10:
+        return None
+
     box = cv2.boxPoints(rect)
     box = np.int0(box)
 
@@ -58,65 +135,43 @@ def get_cnt_center(cnt, frame):
     return rect[0]  # return center point of minAreaRect
 
 
-def get_midpoint(frame, cnt1, cnt2):
-    return (int((cnt1[0] + cnt2[0])/2), int((cnt1[1]+cnt2[1])/2))
+def get_midpoint(cnt1, cnt2, frame):
+    x, y = (int((cnt1[0] + cnt2[0]) / 2), int((cnt1[1] + cnt2[1]) / 2))
+    cv2.circle(frame, (x, y), 10, (0, 255, 0), -1)
+    return (x, y)
 
 
-def find_contour():
-    #sticky note orange:
-    # color_lower = np.array([0, 118, 131])
-    # color_upper = np.array([25, 225, 255])
-
-    # Logo blue:
-    # color_lower = np.array([46, 66, 50])
-    # color_upper = np.array([143, 211, 116])
-
-    # Retro green:
-    color_lower = np.array([45, 0, 245])
-    color_upper = np.array([47, 19, 255])
-
+def find_tape():
     _, frame = cap.read()
     hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
     mask = cv2.inRange(hsv, color_lower, color_upper)
-    _, contours, _ = cv2.findContours(
-        mask, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
-    contour_sizes = [(cv2.contourArea(contours), contours)
-                     for contours in contours]
-    cv2.circle(frame, frame_center, 10, (0, 255, 0), -1)
-    if(len(contour_sizes) > 0):
-        maxElement = max(contour_sizes, key=lambda x: x[0])
-        biggest_contour = maxElement[1]
-        contour_sizes.remove(maxElement)
-        if(len(contour_sizes) > 0):
-            next_biggest_contour = max(contour_sizes, key=lambda x: x[0])[1]
-            cnt1_center = get_cnt_center(biggest_contour, frame)
-            cnt2_center = get_cnt_center(next_biggest_contour, frame)
+    _, contours, _ = cv2.findContours(mask, cv2.RETR_TREE,
+                                      cv2.CHAIN_APPROX_SIMPLE)
 
-            midpoint = get_midpoint(frame, cnt1_center, cnt2_center)
-            cv2.circle(frame, midpoint, 10, (255, 0, 0), -1)
+    cv2.imshow('frame', frame)
 
-            setpoint_y = get_y_distance(midpoint[1])
-            setpoint_x = get_x_distance(midpoint[0], setpoint_y)
+    closest_center, next_closest_center = contour_dist_sort(contours, frame)
+    if closest_center is None or next_closest_center is None:
+        return
 
-            setpoint = (setpoint_x, setpoint_y)
-            print(str(setpoint))
+    midpoint = get_midpoint(closest_center, next_closest_center, frame)
 
-            # print(" D: " + str(get_distance(midpoint[1])))
-            # cv2.rectangle(frame, (0, frame_param[0]), (450, int(frame_param[1] - 25)), (0, 0, 0), -1)
-            # to_send = '{}:{}\n'.format(round(time.time(),3), round(get_h_angle(midpoint[0]),3))
-            # print("Sending...")
-            # s.send(bytearray(to_send, 'utf-8'))
-    cv2.imshow("Frame", frame)
-    cv2.imshow("Mask", mask)
+    to_send = '{}:{}\n'.format(
+        round(time.time(), 3), round(degrees(get_h_angle(midpoint[0])), 3))
+    print(to_send)
+    # s.send(bytearray(to_send, 'utf-8'))
 
 
+if __name__ == "__main__":
+    # connect_tcp()
+    # send_times()
 
-while(True):
+    while (True):
+        try:
+            find_tape()
+        except ConnectionResetError or BrokenPipeError:
+            pass
+            # s.detach()
+            # connect_tcp()
 
-    find_contour()
-
-    if cv2.waitKey(1) & 0xFF == ord('q'):
-        break
-
-cap.release()
-cv2.destroyAllWindows()
+    cap.release()

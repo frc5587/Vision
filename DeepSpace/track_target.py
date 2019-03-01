@@ -108,12 +108,6 @@ def get_center_distance(p1, p2):
 def get_h_angle(cX):
     return atan(((int(640 / 2) + .5) - cX) / 333.82)
 
-    # if(theta > 0):
-    #     return 90 - theta
-    # elif(theta < 0):
-    #     return (-90 - theta)
-    # return 0
-
 
 def get_cnt_center(cnt):
     rect = cv2.minAreaRect(cnt)
