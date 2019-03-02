@@ -2,6 +2,7 @@ import cv2
 import imutils
 import numpy as np
 from random import randint
+import time
 import os
 
 imgs_path = "./DeepSpace/sample-images/"
@@ -17,16 +18,38 @@ color_upper = np.array([255, 10, 255])
 percent_reduce = 0.7
 ANGLE_TOLERANCE_DEG = 2
 
-for file in onlyfiles:
-    img = cv2.imread(imgs_path + file)
-    height, width = img.shape[:2]
-    img = imutils.resize(img, int(width * percent_reduce),
-                         int(height * percent_reduce))
 
-    hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
-    mask = cv2.inRange(hsv, color_lower, color_upper)
-    contours, _ = cv2.findContours(mask, cv2.RETR_TREE,
-                                   cv2.CHAIN_APPROX_SIMPLE)
+def timerfunc(func):
+    """
+    A timer decorator
+    """
+
+    def function_timer(*args, **kwargs):
+        """
+        A nested function for timing other functions
+        """
+        start = time.time()
+        value = func(*args, **kwargs)
+        end = time.time()
+        runtime = end - start
+        msg = "The runtime for {func} took {time} seconds to complete"
+        print(msg.format(func=func.__name__, time=runtime))
+        return value
+
+    return function_timer
+
+
+@timerfunc
+def get_pairs(contours):
+    """Get all valid pairs of tape given a list of OpenCV contours
+
+    Arguments:
+        contours {list} -- list/numpy array of all of the contours
+                            in a given frame
+
+    Returns:
+        list -- list of tuples, where each tuple is a pair of contours
+    """
 
     rect_pairs = []
     for index, cnt in enumerate(contours):
@@ -35,7 +58,6 @@ for file in onlyfiles:
         center_x, center_y = rect[0]
         rect_angle = -round(rect[2], 2)
 
-        font = cv2.FONT_HERSHEY_SIMPLEX
         cv2.putText(img, str(rect_angle), (int(center_x), int(center_y)),
                     cv2.FONT_HERSHEY_DUPLEX, 1, (0, 255, 0), 2, cv2.LINE_AA)
 
@@ -60,8 +82,24 @@ for file in onlyfiles:
 
             if min_rect is not None:
                 rect_pairs.append((rect, min_rect))
-                # np.delete(contours, index)
-                # np.delete(contours, min_index)
+                np.delete(contours, index)
+                np.delete(contours, min_index)
+
+    return rect_pairs
+
+
+for file in onlyfiles:
+    img = cv2.imread(imgs_path + file)
+    height, width = img.shape[:2]
+    img = imutils.resize(img, int(width * percent_reduce),
+                         int(height * percent_reduce))
+
+    hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+    mask = cv2.inRange(hsv, color_lower, color_upper)
+    contours, _ = cv2.findContours(mask, cv2.RETR_TREE,
+                                   cv2.CHAIN_APPROX_SIMPLE)
+
+    rect_pairs = get_pairs(contours)
 
     for rects in rect_pairs:
         color = (randint(128, 255), randint(128, 255), randint(128, 255))
