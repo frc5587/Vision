@@ -1,8 +1,7 @@
 import cv2
 import numpy as np
 from math import atan, degrees, sqrt
-from random import randint
-# import socket
+import socket
 import time
 import os
 
@@ -10,11 +9,11 @@ os.system(
     "uvcdynctrl -s 'Exposure, Auto' 1 && uvcdynctrl -s 'Exposure (Absolute)'" +
     " 0.1 && uvcdynctrl -s 'Brightness' 0.1")
 
-# TCP_IP = '10.55.87.2'
-# TCP_PORT = 3456
+TCP_IP = '10.55.87.2'
+TCP_PORT = 3456
 
-# s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-# s.settimeout(None)
+s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+s.settimeout(None)
 
 CAP = cv2.VideoCapture(0)
 FOCAL_LENGTH = 333.82
@@ -24,30 +23,32 @@ FOV = 86
 ANGLE_TOLERANCE_DEG = 2
 
 # Green
-# color_lower = np.array([50, 180, 50])
-# color_upper = np.array([120, 255, 255])
+color_lower = np.array([50, 180, 50])
+color_upper = np.array([120, 255, 255])
 
 # Blue
-color_lower = np.array([100, 180, 50])
-color_upper = np.array([140, 255, 255])
-
-# def connect_tcp():
-#     while True:
-#         try:
-#             s.connect((TCP_IP, TCP_PORT))
-#             break
-#         except ConnectionRefusedError:
-#             print("Could not connect. Waiting one sec and trying again...")
-#             time.sleep(1)
-
-# def send_times():
-#     for i in range(5):
-#         to_send = '{}\n'.format(round(time.time(), 3))
-#         print("Sending...")
-#         s.send(bytearray(to_send, 'utf-8'))
+# color_lower = np.array([100, 180, 50])
+# color_upper = np.array([140, 255, 255])
 
 
-def get_pair_rects(frame, contours):
+def connect_tcp():
+    while True:
+        try:
+            s.connect((TCP_IP, TCP_PORT))
+            break
+        except ConnectionRefusedError:
+            print("Could not connect. Waiting one sec and trying again...")
+            time.sleep(1)
+
+
+def send_times():
+    for i in range(5):
+        to_send = '{}\n'.format(round(time.time(), 3))
+        print("Sending...")
+        s.send(bytearray(to_send, 'utf-8'))
+
+
+def get_pair_rects(contours):
     """Get all valid pairs of tape in rect form given a list of OpenCV contours.
 
     Using the angles and center coordinates associated with each of the
@@ -60,7 +61,6 @@ def get_pair_rects(frame, contours):
     [(rect1, rect2), (rect3, rect4), ... ]
 
     Arguments:
-        frame {image} -- the image the contours were taken from (for drawing)
         countours {list} -- list/numpy array of all of the contours
                             in a given frame
 
@@ -75,9 +75,6 @@ def get_pair_rects(frame, contours):
         rect = cv2.minAreaRect(cnt)
         center_x, center_y = rect[0]
         rect_angle = -round(rect[2], 2)
-
-        cv2.putText(frame, str(rect_angle), (int(center_x), int(center_y)),
-                    cv2.FONT_HERSHEY_DUPLEX, 1, (0, 255, 0), 2, cv2.LINE_AA)
 
         if rect_angle > 45.0:
             # Iterate through all of the potential matches
@@ -103,19 +100,10 @@ def get_pair_rects(frame, contours):
                 np.delete(contours, index)
                 np.delete(contours, min_index)
 
-    for rects in rect_pairs:
-        color = (randint(128, 255), randint(128, 255), randint(128, 255))
-
-        for rect in rects:
-            box = cv2.boxPoints(rect)
-            box = np.int0(box)
-            cv2.line(frame, tuple(box[0]), tuple(box[-1]), (0, 255, 0), 3)
-            cv2.drawContours(frame, [box], 0, tuple(color), 2)
-
     return rect_pairs
 
 
-def find_pair_centers(frame, rect_pairs):
+def find_pair_centers(rect_pairs):
     """Find all of the pair centers given a list of pairs of rotated rectangles.
 
     The function iterates through a list of pairs of rotated rectangles,
@@ -124,7 +112,6 @@ def find_pair_centers(frame, rect_pairs):
     rect_pairs list is empty, an empty list of centers is returned.
 
     Arguments:
-        frame {image} -- image to draw the centers of pairs on
         rect_pairs {list} -- list of pairs of rotated rectangles
 
     Returns:
@@ -133,30 +120,29 @@ def find_pair_centers(frame, rect_pairs):
 
     centers = []
     for rect1, rect2 in rect_pairs:
-        center = midpoint(frame, rect1[0], rect2[0])
+        center = midpoint(rect1[0], rect2[0])
         centers.append(center)
 
     return centers
 
 
-def closest_center(frame, rect_pairs):
+def closest_center(rect_pairs):
     """Gets the center of the rectangle pair closest to the center of the frame.
 
     Iterates through the rotated rectangle pairs, finding the rect pair that
     is closest to the center of the frame and then returning the center point
     of that rect pair or None if the rect_pairs list is empty. This function,
-    however, does not detect center point of the provided frame, but uses the
-    global FRAME_CENTER variable in this script.
+    however, does not detect center point of a frame, but uses the global
+    FRAME_CENTER variable in this script.
 
     Arguments:
-        frame {image} -- the image on which to draw the centers of rect pairs
         rect_pairs {list} -- list of pairs of rotated rectangles
 
     Returns:
         tuple[int, int] or None -- the coordinates of the center of the rect
                                    pair closest to the center of the frame
     """
-    centers = find_pair_centers(frame, rect_pairs)
+    centers = find_pair_centers(rect_pairs)
 
     min_dist = min_center = None
     for center in centers:
@@ -165,7 +151,6 @@ def closest_center(frame, rect_pairs):
             min_dist = dist
             min_center = center
 
-    cv2.circle(frame, min_center, 10, (0, 0, 255), -1)
     return min_center
 
 
@@ -196,11 +181,10 @@ def horizontal_angle(cX):
     return atan(((FRAME_CENTER[0] + .5) - cX) / FOCAL_LENGTH)
 
 
-def midpoint(frame, point1, point2):
+def midpoint(point1, point2):
     """Find the midpoint between point1 and point2.
 
     Arguments:
-        frame {image} -- the image to draw the midpoint on
         point1 {tuple[int, int]} -- the first point
         point2 {tuple[int, int]} -- the second point
 
@@ -209,7 +193,6 @@ def midpoint(frame, point1, point2):
     """
 
     x, y = (int((point1[0] + point2[0]) / 2), int((point1[1] + point2[1]) / 2))
-    cv2.circle(frame, (x, y), 5, (0, 255, 0), -1)
     return (x, y)
 
 
@@ -225,27 +208,26 @@ def find_tape():
     _, frame = CAP.read()
     hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
     mask = cv2.inRange(hsv, color_lower, color_upper)
-    _, contours, _ = cv2.findContours(mask, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+    _, contours, _ = cv2.findContours(mask, cv2.RETR_TREE,
+                                      cv2.CHAIN_APPROX_SIMPLE)
 
     # Find all valid pair rects, and reutrn if none found
-    pair_rects = get_pair_rects(frame, contours)
+    pair_rects = get_pair_rects(contours)
     if len(pair_rects) == 0:
         return
 
     # If found, continue on and post results
-    center = closest_center(frame, pair_rects)
+    center = closest_center(pair_rects)
 
     to_send = '{}:{}\n'.format(
         round(time.time(), 3), round(degrees(horizontal_angle(center[0])), 3))
     print(to_send)
-    # s.send(bytearray(to_send, 'utf-8'))
-
-    cv2.imshow('frame', frame)
+    s.send(bytearray(to_send, 'utf-8'))
 
 
 if __name__ == "__main__":
-    # connect_tcp()
-    # send_times()
+    connect_tcp()
+    send_times()
 
     while (True):
         try:
@@ -253,9 +235,8 @@ if __name__ == "__main__":
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 break
         except ConnectionResetError or BrokenPipeError:
-            pass
-            # s.detach()
-            # connect_tcp()
+            s.detach()
+            connect_tcp()
 
     CAP.release()
     cv2.destroyAllWindows()
