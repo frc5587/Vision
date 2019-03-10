@@ -265,7 +265,7 @@ def angle_to_tape():
     # Find all valid pair rects, and reutrn if none found
     # pair_rects = get_pair_rects(contours)
     rects = get_rects_by_height(contours)
-    pair_rects = get_pair_rects(rects)
+    pair_rects = get_pairs(rects)
     if len(pair_rects) == 0 or pair_rects is None:
         return
 
