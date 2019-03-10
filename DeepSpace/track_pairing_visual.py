@@ -24,12 +24,12 @@ FOV = 86
 ANGLE_TOLERANCE_DEG = 2
 
 # Green
-# color_lower = np.array([50, 180, 50])
-# color_upper = np.array([120, 255, 255])
+color_lower = np.array([50, 180, 50])
+color_upper = np.array([120, 255, 255])
 
 # Blue
-color_lower = np.array([100, 180, 50])
-color_upper = np.array([140, 255, 255])
+# color_lower = np.array([100, 180, 50])
+# color_upper = np.array([140, 255, 255])
 
 # def connect_tcp():
 #     while True:
@@ -113,6 +113,62 @@ def get_pair_rects(frame, contours):
             cv2.drawContours(frame, [box], 0, tuple(color), 2)
 
     return rect_pairs
+
+
+def get_pairs(rects, frame):
+    rect_pairs = []
+    for index, rect in enumerate(rects):
+        # Rotated rect - ( center (x,y), (width, height), angle of rotation )
+        center_x, center_y = rect[0]
+        rect_angle = -round(rect[2], 2)
+
+        if rect_angle > 45.0:
+            # Iterate through all of the potential matches
+            min_x_dist = min_rect = None
+            # min_x_dist = min_rect = min_index = None
+            for pot_index, match_rect in enumerate(rects):
+                # Check if match is to the right of the contour
+                if match_rect[0][0] > rect[0][0] and abs(
+                        match_rect[2] - rect_angle) > ANGLE_TOLERANCE_DEG:
+                    x_distance = match_rect[0][0] - rect[0][0]
+
+                    if min_x_dist is None or x_distance < min_x_dist:
+                        min_x_dist = x_distance
+                        min_rect = match_rect
+                        # min_index = pot_index
+
+            if min_rect is not None:
+                rect_pairs.append((rect, min_rect))
+                # np.delete(rects, index)
+                # np.delete(rects, min_index)
+
+        if index > 4:
+            break
+
+    for pair in rect_pairs:
+        color = (randint(128, 255), randint(128, 255), randint(128, 255))
+
+        for rect in pair:
+            box = cv2.boxPoints(rect)
+            box = np.int0(box)
+            cv2.line(frame, tuple(box[0]), tuple(box[-1]), (0, 255, 0), 3)
+            cv2.drawContours(frame, [box], 0, tuple(color), 2)
+
+    return rect_pairs
+
+
+def get_rects_by_height(contours):
+    rects = []
+    for cont in contours:
+        rect = cv2.minAreaRect(cont)
+
+        if rect[1][0] <= 25.0 or rect[1][1] <= 25.0:
+            continue
+
+        rects.append(rect)
+
+    rects.sort(key=lambda rect: rect[1][1], reverse=True)
+    return rects
 
 
 def find_pair_centers(frame, rect_pairs):
@@ -225,10 +281,12 @@ def find_tape():
     _, frame = CAP.read()
     hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
     mask = cv2.inRange(hsv, color_lower, color_upper)
-    _, contours, _ = cv2.findContours(mask, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+    contours, _ = cv2.findContours(mask, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
 
     # Find all valid pair rects, and reutrn if none found
-    pair_rects = get_pair_rects(frame, contours)
+    # pair_rects = get_pair_rects(frame, contours)
+    rects = get_rects_by_height(contours)
+    pair_rects = get_pairs(rects, frame)
     if len(pair_rects) == 0:
         return
 

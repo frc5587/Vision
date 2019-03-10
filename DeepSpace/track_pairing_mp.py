@@ -1,6 +1,7 @@
 import cv2
 import numpy as np
 from math import atan, degrees, sqrt
+from multiprocessing import Process, Lock
 import socket
 import time
 import os
@@ -21,6 +22,8 @@ FRAME_CENTER = (int(640 / 2), int(480 / 2))
 FOV = 86
 
 ANGLE_TOLERANCE_DEG = 2
+
+NUM_PROCESSES = 2
 
 # Green
 color_lower = np.array([50, 180, 50])
@@ -76,9 +79,6 @@ def get_pair_rects(contours):
         center_x, center_y = rect[0]
         rect_angle = -round(rect[2], 2)
 
-        # if rect[1][0] <= 25.0 or rect[1][1] <= 25.0:
-        #     continue
-
         if rect_angle > 45.0:
             # Iterate through all of the potential matches
             min_x_dist = min_rect = min_index = None
@@ -104,53 +104,6 @@ def get_pair_rects(contours):
                 np.delete(contours, min_index)
 
     return rect_pairs
-
-
-def get_pairs(rects):
-    rect_pairs = []
-    for index, rect in enumerate(rects):
-        # Rotated rect - ( center (x,y), (width, height), angle of rotation )
-        center_x, center_y = rect[0]
-        rect_angle = -round(rect[2], 2)
-
-        if rect_angle > 45.0:
-            # Iterate through all of the potential matches
-            min_x_dist = min_rect = None
-            # min_x_dist = min_rect = min_index = None
-            for pot_index, match_rect in enumerate(rects):
-                # Check if match is to the right of the contour
-                if match_rect[0][0] > rect[0][0] and abs(
-                        match_rect[2] - rect_angle) > ANGLE_TOLERANCE_DEG:
-                    x_distance = match_rect[0][0] - rect[0][0]
-
-                    if min_x_dist is None or x_distance < min_x_dist:
-                        min_x_dist = x_distance
-                        min_rect = match_rect
-                        # min_index = pot_index
-
-            if min_rect is not None:
-                rect_pairs.append((rect, min_rect))
-                # np.delete(rects, index)
-                # np.delete(rects, min_index)
-
-        if index > 4:
-            break
-
-    return rect_pairs
-
-
-def get_rects_by_height(contours):
-    rects = []
-    for cont in contours:
-        rect = cv2.minAreaRect(cont)
-
-        if rect[1][0] <= 25.0 or rect[1][1] <= 25.0:
-            continue
-
-        rects.append(rect)
-
-    rects.sort(key=lambda rect: rect[1][1], reverse=True)
-    return rects
 
 
 def find_pair_centers(rect_pairs):
@@ -246,8 +199,7 @@ def midpoint(point1, point2):
     return (x, y)
 
 
-# @timerfunc
-def angle_to_tape():
+def angle_to_tape(frame):
     """Find the tape using the VideoCapture object in this script and display it.
 
     Fetches a frame from the CAP object in this script and finds the
@@ -256,24 +208,18 @@ def angle_to_tape():
     various information on the frame before displaying it in a window.
     """
 
-    _, frame = CAP.read()
     hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
     mask = cv2.inRange(hsv, color_lower, color_upper)
     _, contours, _ = cv2.findContours(mask, cv2.RETR_TREE,
                                       cv2.CHAIN_APPROX_SIMPLE)
 
     # Find all valid pair rects, and reutrn if none found
-    # pair_rects = get_pair_rects(contours)
-    rects = get_rects_by_height(contours)
-    pair_rects = get_pair_rects(rects)
-    if len(pair_rects) == 0 or pair_rects is None:
+    pair_rects = get_pair_rects(contours)
+    if len(pair_rects) == 0:
         return
 
     # If found, continue on and post results
     center = closest_center(pair_rects)
-    if center is None:
-        return
-
     return round(degrees(horizontal_angle(center[0])), 3)
 
 
@@ -283,18 +229,36 @@ def send_data(angle):
     s.send(bytearray(to_send, 'utf-8'))
 
 
-if __name__ == "__main__":
-    connect_tcp()
-    send_times()
+def find_and_send(cam_lock, tcp_lock):
+    while True:
+        cam_lock.acquire()
+        _, frame = CAP.read()
+        cam_lock.release()
 
-    while (True):
+        angle = angle_to_tape(frame)
+
+        tcp_lock.acquire()
         try:
-            angle = angle_to_tape()
-            if angle is None:
-                continue
             send_data(angle)
         except ConnectionResetError or BrokenPipeError:
             s.detach()
             connect_tcp()
+        tcp_lock.release()
 
+
+if __name__ == "__main__":
+    connect_tcp()
+    send_times()
+
+    cam_lock = Lock()
+    tcp_lock = Lock()
+
+    processes = []
+    for i in range(0, NUM_PROCESSES):
+        p = Process(find_and_send, args=(cam_lock, tcp_lock))
+        processes.append(p)
+        p.start()
+
+    for p in processes:
+        p.join()
     CAP.release()
