@@ -6,6 +6,11 @@ import argparse
 import imutils
 import time
 import cv2
+import os
+
+os.system(
+    "uvcdynctrl -s 'Exposure, Auto' 1 && uvcdynctrl -s 'Exposure (Absolute)'" +
+    " 0.1 && uvcdynctrl -s 'Brightness' 0.1")
 
 # construct the argument parser and parse the arguments
 ap = argparse.ArgumentParser()
@@ -46,7 +51,7 @@ while True:
 
     # resize the frame (so we can process it faster) and grab the
     # frame dimensions
-    frame = imutils.resize(frame, width=500)
+    # frame = imutils.resize(frame, width=500)
     (H, W) = frame.shape[:2]
 
     # check to see if we are currently tracking an object
@@ -76,26 +81,36 @@ while True:
             text = "{}: {}".format(k, v)
             cv2.putText(frame, text, (10, H - ((i * 20) + 20)),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
+    else:
+        print('Hello!')
+        initBB = find_tape_rect(frame)
+        if initBB is None:
+            continue
+        cv2.rectangle(frame, (initBB[0], initBB[1]), (initBB[0] + initBB[2], initBB[1] + initBB[3]), (0, 255, 255), 4)
+        cv2.circle(frame, (int(W / 2), int(H / 2)), 5, (0, 255, 0), 5)
+
+        tracker = tracker_fn()
+        tracker.init(frame, initBB)
+        fps = FPS().start()
+
+        cv2.imshow("frameD", frame)
+
+    # cv2.imshow('Frame', frame)
+    # while True:
+    #     print('Hello!')
+    #     continue
+    # # start OpenCV object tracker using the supplied bounding box
+    # # coordinates, then start the FPS throughput estimator as well
+    # tracker = tracker_fn()
+    # tracker.init(frame, initBB)
+    # fps = FPS().start()
 
     # show the output frame
     cv2.imshow("Frame", frame)
     key = cv2.waitKey(1) & 0xFF
 
-    # if the 's' key is selected, we are going to "select" a bounding
-    # box to track
-    if key == ord("s"):
-        # select the bounding box of the object we want to track (make
-        # sure you press ENTER or SPACE after selecting the ROI)
-        initBB = find_tape_rect()
-
-        # start OpenCV object tracker using the supplied bounding box
-        # coordinates, then start the FPS throughput estimator as well
-        tracker = tracker_fn()
-        tracker.init(frame, initBB)
-        fps = FPS().start()
-
-        # if the `q` key was pressed, break from the loop
-    elif key == ord("q"):
+    # if the `q` key was pressed, break from the loop
+    if key == ord("q"):
         break
 
 # if we are using a webcam, release the pointer

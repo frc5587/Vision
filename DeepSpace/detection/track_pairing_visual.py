@@ -2,6 +2,7 @@ import cv2
 import numpy as np
 from math import atan, degrees, sqrt
 from random import randint
+from imutils.video import FPS
 # import socket
 import time
 import os
@@ -305,9 +306,14 @@ if __name__ == "__main__":
     # connect_tcp()
     # send_times()
 
+    fps = FPS().start()
+
     while (True):
         try:
             find_tape()
+            fps.update()
+            fps.stop()
+            print(fps.fps())
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 break
         except ConnectionResetError or BrokenPipeError:

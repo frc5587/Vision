@@ -235,13 +235,15 @@ def get_tape_frame(tape_pair):
 
     top_left = (np.min(all_x), np.min(all_y))
     bottom_right = (np.max(all_x), np.max(all_y))
-    return (top_left[0], top_left[1], bottom_right[0], bottom_right[1])
+    width = bottom_right[0] - top_left[0]
+    height = bottom_right[1] - top_left[1]
+    return (top_left[0], top_left[1], width, height)
 
 
 def find_tape_rect(frame):
     hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
     mask = cv2.inRange(hsv, color_lower, color_upper)
-    _, contours, _ = cv2.findContours(mask, cv2.RETR_TREE,
+    contours, _ = cv2.findContours(mask, cv2.RETR_TREE,
                                       cv2.CHAIN_APPROX_SIMPLE)
 
     # Find all valid pair rects, and reutrn if none found
@@ -253,4 +255,9 @@ def find_tape_rect(frame):
 
     # If found, continue on and post results
     pair = closest_pair(pair_rects)
+    # for tape in pair:
+    #     box = cv2.boxPoints(tape)
+    #     box = np.int0(box)
+    #     cv2.drawContours(frame, [box], 0, (255, 255, 0), 2)
+
     return get_tape_frame(pair)
